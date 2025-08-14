@@ -3,104 +3,86 @@
  * Purpose:
  *  - Powers the View Registration page for an Event.
  *  - Shows Confirmed/Attended by default; supports viewing Declined.
- *  - Supports deep linking: add ?id=<EventId>&status=Declined to land on Declined.
+ *  - Deep linking supported: ?id=<EventId>&status=Declined
  *
- * Notes:
- *  - Update object/field API names if your org uses different ones:
- *      * Event object:        BCAP_Event__c            (rename here if yours is BCA_Event__c)
- *      * Registration object: BCAP_Event_Registration__c
- *      * Lookup to Event:     Event__c
- *      * Status field:        UpdateToUser__c  (values expected: 'Confirmed', 'Attended', 'Declined')
- *  - Page action "Back to Event" expects a Visualforce page named EventDetails. Change if needed.
+ * API names used (adjust if your org differs):
+ *  - Event object:        BCAP_Event__c
+ *  - Registration object: BCAP_Event_Registration__c
+ *  - Lookup to Event:     Event__c
+ *  - Status field:        UpdateToUser__c  (values: 'Confirmed', 'Attended', 'Declined')
  */
 public with sharing class ViewRegistration_List {
 
-    // -------------------------
-    // Public properties (used by VF)
-    // -------------------------
-    public BCAP_Event__c bcaEvent { get; private set; }         // Event context
-    public Contact con { get; private set; }                     // Logged-in user's Contact (if any)
+    // -------- Public props used by VF --------
+    public BCAP_Event__c bcaEvent { get; private set; }
+    public Contact con { get; private set; }
 
-    /** Current list filter: 'Confirmed' (default) or 'Declined'. Can be set via URL ?status=Declined */
-    public String statusFilter { get; set; } = 'Confirmed';
+    /** Current filter: 'Confirmed' (default) or 'Declined'. */
+    public String statusFilter { get; set; }   // default set in constructor
 
-    // Keep the original name so existing <apex:repeat value="{!EvntRegConfirmList}"> continues to work.
-    // When statusFilter = 'Declined', this getter returns the declined list so you don't have to change the VF repeat.
+    // Keep the legacy name used in VF: {!EvntRegConfirmList}
     public List<BCAP_Event_Registration__c> getEvntRegConfirmList() {
         return (statusFilter == 'Declined') ? getEvntRegDeclinedList() : confirmedOrAttended;
     }
 
-    /** Explicit Declined list (useful if you add a second table or badges). */
+    // Explicit Declined list (handy if you add tabs/badges later)
     public List<BCAP_Event_Registration__c> getEvntRegDeclinedList() {
         return declined;
     }
 
-    /** Total count shown in the header badge; respects the active filter. */
+    // Used by the page badge; respects current filter
     public Integer getTotalReg() {
         List<BCAP_Event_Registration__c> listToCount =
             (statusFilter == 'Declined') ? getEvntRegDeclinedList() : getEvntRegConfirmList();
         return (listToCount == null) ? 0 : listToCount.size();
     }
 
-    /** Label used in the header ("Confirmed"/"Attended" or "Declined"), based on date and filter. */
+    // Optional helper if you want a single label in VF
     public String getFilterLabel() {
         if (statusFilter == 'Declined') return 'Declined';
         return (Date.today() > (bcaEvent != null ? bcaEvent.Event_Date__c : Date.today())) ? 'Attended' : 'Confirmed';
     }
 
-    // -------------------------
-    // Private state
-    // -------------------------
+    // -------- Private state --------
     private Id eventId;
     private List<BCAP_Event_Registration__c> confirmedOrAttended;
     private List<BCAP_Event_Registration__c> declined;
 
-    // -------------------------
-    // Constructor
-    // -------------------------
+    // -------- Constructor --------
     public ViewRegistration_List() {
-        // 1) Who is the user? (for {!con.Id} used in your JS)
+        statusFilter = 'Confirmed'; // <-- set default here
+
         initUserContact();
 
-        // 2) Get Event Id from URL (supports ?id= or ?eventId=)
         eventId = getEventIdFromParams();
         if (eventId == null) {
             ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, 'No Event Id was provided.'));
             return;
         }
 
-        // 3) Load the Event
         loadEvent(eventId);
         if (bcaEvent == null) {
             ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, 'Event not found or you do not have access.'));
             return;
         }
 
-        // 4) Load both lists once (no SOQL in getters)
         loadRegistrationLists();
-
-        // 5) Read optional status from URL (?status=Declined)
-        initStatusFromUrl();
+        initStatusFromUrl(); // allow ?status=Declined
     }
 
-    // -------------------------
-    // Actions for optional on-page toggle (nav pills / buttons can call these)
-    // -------------------------
+    // -------- Actions (for optional on-page toggle) --------
     public PageReference setFilterConfirmed() { statusFilter = 'Confirmed'; return null; }
     public PageReference setFilterDeclined()  { statusFilter = 'Declined';  return null; }
 
-    // "Back to Event" button
+    // Back to Event button action
     public PageReference invitesomeoneelse() {
-        // If your page is named differently, change Page.EventDetails accordingly.
-        PageReference p = Page.EventDetails;
+        PageReference p = Page.EventDetails; // change if your page name differs
         p.getParameters().put('id', (bcaEvent != null ? bcaEvent.Id : eventId));
         p.setRedirect(true);
         return p;
     }
 
-    // -------------------------
-    // Data loaders
-    // -------------------------
+    // -------- Loaders / helpers --------
     private void initUserContact() {
         User u = [
             SELECT Id, ContactId
@@ -125,49 +107,49 @@ public with sharing class ViewRegistration_List {
         String s = ApexPages.currentPage().getParameters().get('status');
         if (!String.isBlank(s)) {
             s = s.trim();
-            if (s.equalsIgnoreCase('declined')) statusFilter = 'Declined';
-            else if (s.equalsIgnoreCase('confirmed') || s.equalsIgnoreCase('attended')) statusFilter = 'Confirmed';
+            if (s.equalsIgnoreCase('declined')) {
+                statusFilter = 'Declined';
+            } else if (s.equalsIgnoreCase('confirmed') || s.equalsIgnoreCase('attended')) {
+                statusFilter = 'Confirmed';
+            }
         }
     }
 
     private void loadEvent(Id evtId) {
-        // Include only fields you actually use in VF for view state efficiency
         List<BCAP_Event__c> evts = [
             SELECT Id, Name, Event_Date__c, Attendance_Criteria__c
             FROM BCAP_Event__c
             WHERE Id = :evtId
             LIMIT 1
         ];
-        bcaEvent = (evts.isEmpty() ? null : evts[0]);
+        bcaEvent = evts.isEmpty() ? null : evts[0];
     }
 
     private void loadRegistrationLists() {
-        // Base fields used by your table
+        // Only select fields actually used by VF to keep view state lean
         String baseFields =
-            'Id, ' +
-            'Contact__c, Contact__r.FirstName, Contact__r.LastName, Contact__r.Email, ' +
-            'Contact__r.Account.Name, ' +
-            'Member_Block__c, Member_Block__r.Account__r.Id, Member_Block__r.Account__r.Name, ' +
-            'Guest_Of__c, Guest_Of__r.Name, ' +
-            'Attendance_Type__c, ' +
-            'UpdateToUser__c, ' +
-            'Event__c';
+            'Id,' +
+            ' Contact__c, Contact__r.FirstName, Contact__r.LastName, Contact__r.Email,' +
+            ' Contact__r.Account.Name,' +
+            ' Member_Block__c, Member_Block__r.Account__r.Id, Member_Block__r.Account__r.Name,' +
+            ' Guest_Of__c, Guest_Of__r.Name,' +
+            ' Attendance_Type__c,' +
+            ' UpdateToUser__c,' +
+            ' Event__c';
 
-        // Confirmed or Attended
         confirmedOrAttended = Database.query(
             'SELECT ' + baseFields +
-            ' FROM BCAP_Event_Registration__c ' +
-            ' WHERE Event__c = :bcaEvent.Id ' +
-            '   AND UpdateToUser__c IN (\'Confirmed\', \'Attended\') ' +
+            ' FROM BCAP_Event_Registration__c' +
+            ' WHERE Event__c = :bcaEvent.Id' +
+            '   AND UpdateToUser__c IN (\'Confirmed\', \'Attended\')' +
             ' ORDER BY Contact__r.LastName, Contact__r.FirstName'
         );
 
-        // Declined
         declined = Database.query(
             'SELECT ' + baseFields +
-            ' FROM BCAP_Event_Registration__c ' +
-            ' WHERE Event__c = :bcaEvent.Id ' +
-            '   AND UpdateToUser__c = \'Declined\' ' +
+            ' FROM BCAP_Event_Registration__c' +
+            ' WHERE Event__c = :bcaEvent.Id' +
+            '   AND UpdateToUser__c = \'Declined\'' +
             ' ORDER BY Contact__r.LastName, Contact__r.FirstName'
         );
     }
