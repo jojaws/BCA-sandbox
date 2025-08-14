@@ -1,0 +1,54 @@
+public without sharing class ViewRegistration_List {
+        public String contactUserId {get;set;}
+    public String EventId {get;set;}
+    public Contact con {get;set;}
+    public BCAP_Event__c bcaEvent {get;set;}
+    public List<Event_Registration__c> EvntRegConfirmList {get;set;}
+    public Integer TotalReg {get;set;}
+    
+    public String profilePhotoId{get;set;}
+    
+    public ViewRegistration_List() {
+        con = new Contact();
+        bcaEvent = new BCAP_Event__c();
+        TotalReg = 0;
+        EvntRegConfirmList = new List<Event_Registration__c>();
+        contactUserId = ApexPages.CurrentPage().getParameters().get('UserId');
+        EventId = ApexPages.CurrentPage().getParameters().get('EventId');
+        con = [select id, name ,Account.Name,AccountId,title,phone,email,PhotoUrl from contact where id =: contactUserId];
+        
+        bcaEvent = [select id,Name,Event_Date__c,Dress_Code__c  ,Event_Description__c,Event_Type__r.name,Event_Type__c,Deadline_to_register__c,Host_Account__c,Parking__c,Invite_Only__c,
+                                                  Publish_to_Portal__c,Start_Time__c,Venue__c,Venue_Address__c,End_Time__c,Directions__c,Attendance_Criteria__c,Speaker_Bio__c 
+                                                  from BCAP_Event__c where id =: EventId ];
+        if(bcaEvent.Event_Date__c<date.today()){
+                TotalReg = [select count() from Event_Registration__c where  Event__c =: EventId  and Attended__c =true];
+            for(Event_Registration__c eR : [select id,contact__r.name, Attendance_Type__c,
+                                            Contact__r.Account.Name,Member_Block__r.Account__r.Name, Member_Block__r.Account__r.Id,
+                                            Guest_Of__r.name,Contact__r.Firstname,Contact__r.lastname,
+                                            Contact__r.Title,Contact__r.phone,Contact__r.Email,Event__c,Attended__c,
+                                            Status__c from Event_Registration__c where  Event__c =:EventId and Attended__c =true order by  Member_Block__r.Account__r.Name,Contact__r.lastname]) {
+                EvntRegConfirmList.add(eR);
+            }    
+        }else{
+            TotalReg = [select count() from Event_Registration__c where  Event__c =: EventId  and Status__c ='Confirmed'];
+            for(Event_Registration__c eR : [select id,contact__r.name, Attendance_Type__c,
+                                            Contact__r.Account.Name,Member_Block__r.Account__r.Name, Member_Block__r.Account__r.Id,
+                                            Guest_Of__r.name,Contact__r.Firstname,Contact__r.lastname,
+                                            Contact__r.Title,Contact__r.phone,Contact__r.Email,Event__c,Attended__c,
+                                            Status__c from Event_Registration__c where  Event__c =:EventId and Status__c = 'Confirmed' order by  Member_Block__r.Account__r.Name,Contact__r.lastname]) {
+                EvntRegConfirmList.add(eR);
+            }
+        }
+         
+            
+        try{
+          profilePhotoId='/servlet/servlet.FileDownload?file='+[SELECT id,Name,Parentid from attachment WHERE parentid=:contactUserId and Name LIKE '%headshot.jpg' limit 1 ].id; 
+        }catch(Exception e){
+            profilePhotoId=null;
+            System.debug(profilePhotoId);
+        }
+    }
+    public pagereference invitesomeoneelse(){
+        return new PageReference('/Eventdetails?EventId='+EventId+'&UserId='+con.id);
+    }
+}
